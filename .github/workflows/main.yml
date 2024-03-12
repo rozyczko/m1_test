@@ -53,7 +53,7 @@ jobs:
             echo "SITE_PACKAGES=/opt/hostedtoolcache/Python/3.11.8/x64/lib/python3.11/site-packages" >> $GITHUB_ENV
           elif [[ '${{ runner.os }}' == 'macOS' ]]; then
             echo "SEP=/" >> $GITHUB_ENV
-            echo "PLATFORM_TAG=macosx_12_0_x86_64" >> $GITHUB_ENV
+            echo "PLATFORM_TAG=macosx_12_0_arm64" >> $GITHUB_ENV
             echo "CMAKE_GENERATOR=-G 'Unix Makefiles'" >> $GITHUB_ENV
             echo "SITE_PACKAGES=/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages" >> $GITHUB_ENV
             echo "LIBPYTHON=-L/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/config-3.11-darwin -lpython3.11" >> $GITHUB_ENV
