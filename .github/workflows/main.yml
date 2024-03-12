@@ -1,0 +1,84 @@
+name: main
+
+on:
+  push:
+
+jobs:
+  main:
+    timeout-minutes: 30
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13-xlarge]
+        build_system: [cmake]
+        compiler: [gfortran]
+
+    steps:
+      - name: Check-out repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v4
+        with:
+            python-version: 3.11
+
+      - name: Upgrade PIP
+        run: python -m pip install --upgrade pip
+
+      - name: Declare env variables (independent)
+        shell: bash
+        run: |
+          echo "PROJECTS_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          echo "CRYSFML_PROJECT=crysfml08" >> $GITHUB_ENV
+          echo "PYCRYSFML_PROJECT=pycrysfml08" >> $GITHUB_ENV
+          echo "DIST_PACKAGE_NAME=pycrysfml08" >> $GITHUB_ENV
+          echo "DIST_PACKAGE_VERSION=0.0.1a0" >> $GITHUB_ENV
+          echo "PYTHON_TAG=py311" >> $GITHUB_ENV
+          echo "SEP=/" >> $GITHUB_ENV
+          echo "PLATFORM_TAG=macosx_12_0_x86_64" >> $GITHUB_ENV
+          echo "CMAKE_GENERATOR=-G 'Unix Makefiles'" >> $GITHUB_ENV
+          echo "SITE_PACKAGES=/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages" >> $GITHUB_ENV
+          echo "LIBPYTHON=-L/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/config-3.11-darwin -lpython3.11" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion)" >> $GITHUB_ENV  # needed because of `brew reinstall gcc`
+          #echo "COMPILER_OPTIONS=-cpp -std=f2008 -ffree-line-length-none -fPIC" >> $GITHUB_ENV
+          echo "COMPILER_OPTIONS=-cpp -ffree-line-length-none -fPIC" >> $GITHUB_ENV
+
+      - name: Declare env variables (dependent)
+        shell: bash
+        run: |
+          echo "CRYSFML_REPO=${{ env.PROJECTS_DIR }}${{ env.SEP }}${{ env.CRYSFML_PROJECT }}_repo" >> $GITHUB_ENV
+          echo "PYCRYSFML_REPO=${{ env.PROJECTS_DIR }}${{ env.SEP }}${{ env.PYCRYSFML_PROJECT }}_repo" >> $GITHUB_ENV
+          echo "CRYSFML_BUILD=${{ env.PROJECTS_DIR }}${{ env.SEP }}${{ env.CRYSFML_PROJECT }}_build" >> $GITHUB_ENV
+          echo "PYCRYSFML_BUILD=${{ env.PROJECTS_DIR }}${{ env.SEP }}${{ env.PYCRYSFML_PROJECT }}_build" >> $GITHUB_ENV
+          echo "CRYSFML_DIST=${{ env.PROJECTS_DIR }}${{ env.SEP }}${{ env.CRYSFML_PROJECT }}_dist" >> $GITHUB_ENV
+          echo "PYCRYSFML_DIST=${{ env.PROJECTS_DIR }}${{ env.SEP }}${{ env.PYCRYSFML_PROJECT }}_dist" >> $GITHUB_ENV
+          echo "PYCRYSFML_WHEEL=${{ env.PROJECTS_DIR }}${{ env.SEP }}${{ env.PYCRYSFML_PROJECT }}_wheel" >> $GITHUB_ENV
+          echo "ORIGINAL_WHEEL_NAME=${{ env.DIST_PACKAGE_NAME }}-${{ env.DIST_PACKAGE_VERSION }}-py3-none-any.whl" >> $GITHUB_ENV
+          echo "FIXED_WHEEL_NAME=${{ env.DIST_PACKAGE_NAME }}-${{ env.DIST_PACKAGE_VERSION }}-${{ env.PYTHON_TAG }}-none-${{ env.PLATFORM_TAG }}.whl" >> $GITHUB_ENV
+
+      - name: Install OS-specific dependences (macOS + gfortran)
+        run: |
+          brew reinstall gcc  # to add gfortran
+          gfortran --version
+
+      - name: Download CrysFML (powder_mod_fix branch)
+        run: git clone --single-branch --branch powder_mod_fix https://code.ill.fr/rodriguez-carvajal/crysfml2008.git ${{ env.CRYSFML_REPO }}
+
+      - name: Build CrysFML using CMake
+        run: |
+          echo '::::: cmake ${{ env.CMAKE_GENERATOR }} -D ARCH32=OFF -D PYTHON_API=OFF -D CMAKE_BUILD_TYPE=Debug -D CMAKE_POSITION_INDEPENDENT_CODE=ON -D CMAKE_Fortran_COMPILER=${{ matrix.compiler }} -D CMAKE_INSTALL_PREFIX=${{ env.CRYSFML_DIST }} -S ${{ env.CRYSFML_REPO }} -B ${{ env.CRYSFML_BUILD }}'
+          cmake ${{ env.CMAKE_GENERATOR }} -D ARCH32=OFF -D PYTHON_API=OFF -D CMAKE_BUILD_TYPE=Debug -D CMAKE_POSITION_INDEPENDENT_CODE=ON -D CMAKE_Fortran_COMPILER=${{ matrix.compiler }} -D CMAKE_INSTALL_PREFIX=${{ env.CRYSFML_DIST }} -S ${{ env.CRYSFML_REPO }} -B ${{ env.CRYSFML_BUILD }}
+          echo '::::: cmake --build ${{ env.CRYSFML_BUILD }} --parallel'
+          cmake --build ${{ env.CRYSFML_BUILD }} --parallel
+          echo '::::: cmake --install ${{ env.CRYSFML_BUILD }}'
+          cmake --install ${{ env.CRYSFML_BUILD }}
+
+
+      # - name: Upload wheel
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ env.FIXED_WHEEL_NAME }}
+      #     path: ${{ env.PYCRYSFML_WHEEL }}${{ env.SEP }}${{ env.FIXED_WHEEL_NAME }}
