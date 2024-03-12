@@ -2,6 +2,8 @@ name: main
 
 on:
   push:
+  #schedule:
+  #  - cron: '*/120 8-18 * * *'  # every 2 hours from 8:00 to 18:00 every day
 
 jobs:
   main:
@@ -12,9 +14,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [flyci-macos-14-m2]
-        build_system: [cmake]
-        compiler: [gfortran]
+        os: [flyci-macos-14-m1, flyci-macos-14-m2]  # [ubuntu-22.04, macos-12, windows-2022]
+        build_system: [cmake]  # [cmake, fpm]
+        compiler: [gfortran]  # [gfortran, ifort]
+        include:
+          - os: ubuntu-22.04
+            build_system: cmake
+            compiler: ifort
+          - os: ubuntu-22.04
+            build_system: cmake
+            compiler: ifx
 
     steps:
       - name: Check-out repository
@@ -37,14 +46,31 @@ jobs:
           echo "DIST_PACKAGE_NAME=pycrysfml08" >> $GITHUB_ENV
           echo "DIST_PACKAGE_VERSION=0.0.1a0" >> $GITHUB_ENV
           echo "PYTHON_TAG=py311" >> $GITHUB_ENV
-          echo "SEP=/" >> $GITHUB_ENV
-          echo "PLATFORM_TAG=macosx_12_0_x86_64" >> $GITHUB_ENV
-          echo "CMAKE_GENERATOR=-G 'Unix Makefiles'" >> $GITHUB_ENV
-          echo "SITE_PACKAGES=/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages" >> $GITHUB_ENV
-          echo "LIBPYTHON=-L/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/config-3.11-darwin -lpython3.11" >> $GITHUB_ENV
-          echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion)" >> $GITHUB_ENV  # needed because of `brew reinstall gcc`
-          #echo "COMPILER_OPTIONS=-cpp -std=f2008 -ffree-line-length-none -fPIC" >> $GITHUB_ENV
-          echo "COMPILER_OPTIONS=-cpp -ffree-line-length-none -fPIC" >> $GITHUB_ENV
+          if [[ '${{ runner.os }}' == 'Linux' ]]; then
+            echo "SEP=/" >> $GITHUB_ENV
+            echo "PLATFORM_TAG=linux_x86_64" >> $GITHUB_ENV
+            echo "CMAKE_GENERATOR=-G 'Unix Makefiles'" >> $GITHUB_ENV
+            echo "SITE_PACKAGES=/opt/hostedtoolcache/Python/3.11.8/x64/lib/python3.11/site-packages" >> $GITHUB_ENV
+          elif [[ '${{ runner.os }}' == 'macOS' ]]; then
+            echo "SEP=/" >> $GITHUB_ENV
+            echo "PLATFORM_TAG=macosx_12_0_x86_64" >> $GITHUB_ENV
+            echo "CMAKE_GENERATOR=-G 'Unix Makefiles'" >> $GITHUB_ENV
+            echo "SITE_PACKAGES=/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages" >> $GITHUB_ENV
+            echo "LIBPYTHON=-L/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/config-3.11-darwin -lpython3.11" >> $GITHUB_ENV
+            echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion)" >> $GITHUB_ENV  # needed because of `brew reinstall gcc`
+          elif [[ '${{ runner.os }}' == 'Windows' ]]; then
+            echo "SEP=\\" >> $GITHUB_ENV
+            echo "PLATFORM_TAG=win_amd64" >> $GITHUB_ENV
+            echo "CMAKE_GENERATOR=-G 'NMake Makefiles'" >> $GITHUB_ENV
+            echo "SITE_PACKAGES=c:/hostedtoolcache/windows/python/3.11.8/x64/lib/site-packages" >> $GITHUB_ENV
+            echo "LIBPYTHON=${{ env.Python_ROOT_DIR }}\\libs\\python311.lib" >> $GITHUB_ENV
+          fi
+          if [[ '${{ matrix.compiler }}' == 'gfortran' ]]; then
+            #echo "COMPILER_OPTIONS=-cpp -std=f2008 -ffree-line-length-none -fPIC" >> $GITHUB_ENV
+            echo "COMPILER_OPTIONS=-cpp -ffree-line-length-none -fPIC" >> $GITHUB_ENV
+          elif [[ '${{ matrix.compiler }}' == 'ifort' || '${{ matrix.compiler }}' == 'ifx' ]]; then
+            echo "COMPILER_OPTIONS=-fpp -fPIC" >> $GITHUB_ENV
+          fi
 
       - name: Declare env variables (dependent)
         shell: bash
@@ -59,10 +85,29 @@ jobs:
           echo "ORIGINAL_WHEEL_NAME=${{ env.DIST_PACKAGE_NAME }}-${{ env.DIST_PACKAGE_VERSION }}-py3-none-any.whl" >> $GITHUB_ENV
           echo "FIXED_WHEEL_NAME=${{ env.DIST_PACKAGE_NAME }}-${{ env.DIST_PACKAGE_VERSION }}-${{ env.PYTHON_TAG }}-none-${{ env.PLATFORM_TAG }}.whl" >> $GITHUB_ENV
 
+      - name: Install OS-specific dependences (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Install OS-specific dependences (macOS + gfortran)
+        if: runner.os == 'macOS' && matrix.compiler == 'gfortran'
         run: |
           brew reinstall gcc  # to add gfortran
           gfortran --version
+          #brew install llvm  # ??? OpenMP for parallel compilation in FPM
+          #brew reinstall libomp  # ??? OpenMP for parallel compilation in FPM
+
+      - name: Install OS-specific dependences (Linux + ifort/ifx)
+        if: runner.os == 'Linux' && (matrix.compiler == 'ifort' || matrix.compiler == 'ifx')
+        run: |
+          curl -Lo- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | sudo gpg --dearmor -o /usr/share/keyrings/oneapi-archive-keyring.gpg
+          sudo tee /etc/apt/sources.list.d/oneAPI.list <<< "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main"
+          sudo apt-get update
+          sudo apt-get install intel-oneapi-compiler-fortran
+          source /opt/intel/oneapi/setvars.sh
+          printenv >> $GITHUB_ENV
+          ifort --version
+          ifx --version
 
       - name: Download CrysFML (powder_mod_fix branch)
         run: git clone --single-branch --branch powder_mod_fix https://code.ill.fr/rodriguez-carvajal/crysfml2008.git ${{ env.CRYSFML_REPO }}
@@ -76,9 +121,118 @@ jobs:
           echo '::::: cmake --install ${{ env.CRYSFML_BUILD }}'
           cmake --install ${{ env.CRYSFML_BUILD }}
 
+      - name: Download PyCrysFML (master branch)
+        run: git clone --single-branch --branch master https://code.ill.fr/scientific-software/pycrysfml08.git ${{ env.PYCRYSFML_REPO }}
 
-      # - name: Upload wheel
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ${{ env.FIXED_WHEEL_NAME }}
-      #     path: ${{ env.PYCRYSFML_WHEEL }}${{ env.SEP }}${{ env.FIXED_WHEEL_NAME }}
+      - name: Copy powder_mod.f90 to PyCrysFML src folder
+        run: |
+          echo '::::: cp ${{ env.CRYSFML_REPO }}${{ env.SEP }}Testing${{ env.SEP }}Powder${{ env.SEP }}Test_2${{ env.SEP }}fortran${{ env.SEP }}src${{ env.SEP }}powder_mod.f90 ${{ env.PYCRYSFML_REPO }}${{ env.SEP }}src${{ env.SEP }}powder_mod.F90'
+          cp ${{ env.CRYSFML_REPO }}${{ env.SEP }}Testing${{ env.SEP }}Powder${{ env.SEP }}Test_2${{ env.SEP }}fortran${{ env.SEP }}src${{ env.SEP }}powder_mod.f90 ${{ env.PYCRYSFML_REPO }}${{ env.SEP }}src${{ env.SEP }}powder_mod.F90
+
+      - name: Build some PyCrysFML modules one by one (Linux + macOS)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run: |
+          echo '::::: mkdir -p ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}'
+          mkdir -p ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}
+          echo '::::: cd ${{ env.PYCRYSFML_REPO }}${{ env.SEP }}src'
+          cd ${{ env.PYCRYSFML_REPO }}${{ env.SEP }}src
+          #for n in py_cfml_metrics py_cfml_profiles py_cfml_sxtal_geom powder_mod; do
+          for n in py_cfml_metrics py_cfml_profiles py_cfml_sxtal_geom powder_mod; do
+            echo "::::: ${{ matrix.compiler }} ${{ env.COMPILER_OPTIONS }} -c $n.F90 -I ${{ env.CRYSFML_DIST }}/include"
+            ${{ matrix.compiler }} ${{ env.COMPILER_OPTIONS }} -c $n.F90 -I ${{ env.CRYSFML_DIST }}/include
+            echo "::::: ${{ matrix.compiler }} -shared -o $n.so $n.o -L ${{ env.CRYSFML_DIST }}/lib -l CrysFML08 ${{ env.LIBPYTHON }}"
+            ${{ matrix.compiler }} -shared -o $n.so $n.o -L ${{ env.CRYSFML_DIST }}/lib -l CrysFML08 ${{ env.LIBPYTHON }}
+            echo "::::: mv $n.so ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}"
+            mv $n.so ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}
+          done
+          echo '::::: ls -l ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}'
+          ls -l ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}
+
+      - name: Build some PyCrysFML modules one by one (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          echo '::::: mkdir ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}'
+          mkdir ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}
+          echo '::::: cd ${{ env.PYCRYSFML_REPO }}${{ env.SEP }}src'
+          cd ${{ env.PYCRYSFML_REPO }}${{ env.SEP }}src
+          for %%n in (py_cfml_metrics py_cfml_profiles py_cfml_sxtal_geom powder_mod) do (
+            echo "::::: ${{ matrix.compiler }} ${{ env.COMPILER_OPTIONS }} -c %%n.f90 -I ${{ env.CRYSFML_DIST }}/include"
+            ${{ matrix.compiler }} ${{ env.COMPILER_OPTIONS }} -c %%n.f90 -I ${{ env.CRYSFML_DIST }}/include
+            echo "::::: ${{ matrix.compiler }} -shared -o %%n.pyd %%n.o -L ${{ env.CRYSFML_DIST }}/lib -l CrysFML08 ${{ env.LIBPYTHON }}"
+            ${{ matrix.compiler }} -shared -o %%n.pyd %%n.o -L ${{ env.CRYSFML_DIST }}/lib -l CrysFML08 ${{ env.LIBPYTHON }}
+            echo "::::: move %%n.pyd ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}"
+            move %%n.pyd ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}
+          )
+          echo '::::: dir ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}'
+          dir ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}
+
+      - name: Add required system DLLs (Windows)
+        if: runner.os == 'Windows'
+        run: |
+            cp ${{ env.Python_ROOT_DIR }}\\python311.dll ${{ env.PYCRYSFML_DIST }}\\${{ env.DIST_PACKAGE_NAME }}
+            cp c:\\mingw64\\bin\\libgcc_s_seh-1.dll ${{ env.PYCRYSFML_DIST }}\\${{ env.DIST_PACKAGE_NAME }}
+            cp c:\\mingw64\\bin\\libgfortran-5.dll ${{ env.PYCRYSFML_DIST }}\\${{ env.DIST_PACKAGE_NAME }}
+            cp c:\\mingw64\\bin\\libquadmath-0.dll ${{ env.PYCRYSFML_DIST }}\\${{ env.DIST_PACKAGE_NAME }}
+            cp c:\\mingw64\\bin\\libwinpthread-1.dll ${{ env.PYCRYSFML_DIST }}\\${{ env.DIST_PACKAGE_NAME }}
+            echo '::::: dir ${{ env.PYCRYSFML_DIST }}\\${{ env.DIST_PACKAGE_NAME }}'
+            ls -l ${{ env.PYCRYSFML_DIST }}\\${{ env.DIST_PACKAGE_NAME }}
+
+      - name: Add __init__.py
+        run: |
+          echo '::::: cp ${{ env.PYCRYSFML_REPO }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}${{ env.SEP }}__init__.py ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}'
+          cp ${{ env.PYCRYSFML_REPO }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}${{ env.SEP }}__init__.py ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}
+          echo '::::: ls -l ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}'
+          ls -l ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}
+
+      - name: Add magnetic_data.txt database
+        run: |
+          echo '::::: mkdir ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}${{ env.SEP }}Databases'
+          mkdir ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}${{ env.SEP }}Databases
+          echo '::::: cp ${{ env.CRYSFML_REPO }}${{ env.SEP }}Src${{ env.SEP }}Databases${{ env.SEP }}magnetic_data.txt ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}${{ env.SEP }}Databases'
+          cp ${{ env.CRYSFML_REPO }}${{ env.SEP }}Src${{ env.SEP }}Databases${{ env.SEP }}magnetic_data.txt ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}${{ env.SEP }}Databases
+          echo '::::: ls -l ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}${{ env.SEP }}Databases'
+          ls -l ${{ env.PYCRYSFML_DIST }}${{ env.SEP }}${{ env.DIST_PACKAGE_NAME }}${{ env.SEP }}Databases
+
+      - name: Validate pyproject.toml
+        run: |
+          echo "::::: python -m pip install 'validate-pyproject[all]'"
+          python -m pip install 'validate-pyproject[all]'
+          echo "::::: validate-pyproject pyproject.toml"
+          validate-pyproject pyproject.toml
+
+      - name: Build PyCrysFML python wheel
+        run: |
+          echo '::::: python -m pip install build'
+          python -m pip install build
+          echo '::::: python3 -m build --wheel --outdir ${{ env.PYCRYSFML_WHEEL }}'
+          python3 -m build --wheel --outdir ${{ env.PYCRYSFML_WHEEL }}
+
+      - name: Rename wheel
+        run: |
+          echo '::::: python -m pip install wheel'
+          python -m pip install wheel
+          echo '::::: python -m wheel tags --python-tag ${{ env.PYTHON_TAG }} --platform-tag ${{ env.PLATFORM_TAG }} --remove ${{ env.PYCRYSFML_WHEEL }}${{ env.SEP }}${{ env.ORIGINAL_WHEEL_NAME }}'
+          python -m wheel tags --python-tag ${{ env.PYTHON_TAG }} --platform-tag ${{ env.PLATFORM_TAG }} --remove ${{ env.PYCRYSFML_WHEEL }}${{ env.SEP }}${{ env.ORIGINAL_WHEEL_NAME }}
+          echo "::::: ls -l ${{ env.PYCRYSFML_WHEEL }}"
+          ls -l ${{ env.PYCRYSFML_WHEEL }}
+
+      - name: Install PyCrysFML from local wheel (with dev extras)
+        run: |
+          echo "::::: ls -l ${{ env.PYCRYSFML_WHEEL }}"
+          ls -l ${{ env.PYCRYSFML_WHEEL }}
+          echo '::::: python3 -m pip install "${{ env.DIST_PACKAGE_NAME }}[dev]" --find-links=${{ env.PYCRYSFML_WHEEL }}'
+          python3 -m pip install "${{ env.DIST_PACKAGE_NAME }}[dev]" --find-links=${{ env.PYCRYSFML_WHEEL }}
+
+      - name: Upload wheel
+        #if: matrix.compiler == 'gfortran'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FIXED_WHEEL_NAME }}
+          path: ${{ env.PYCRYSFML_WHEEL }}${{ env.SEP }}${{ env.FIXED_WHEEL_NAME }}
+
+      - name: Run tests
+        run: pytest tests/ -vv
+
+      - name: Debug
+        run: python tests${{ env.SEP }}test_powder_mod.py
