@@ -17,13 +17,13 @@ jobs:
         os: [flyci-macos-14-m1, flyci-macos-14-m2]  # [ubuntu-22.04, macos-12, windows-2022]
         build_system: [cmake]  # [cmake, fpm]
         compiler: [gfortran]  # [gfortran, ifort]
-        include:
-          - os: ubuntu-22.04
-            build_system: cmake
-            compiler: ifort
-          - os: ubuntu-22.04
-            build_system: cmake
-            compiler: ifx
+        # include:
+        #   - os: ubuntu-22.04
+        #     build_system: cmake
+        #     compiler: ifort
+        #   - os: ubuntu-22.04
+        #     build_system: cmake
+        #     compiler: ifx
 
     steps:
       - name: Check-out repository
@@ -234,5 +234,5 @@ jobs:
       - name: Run tests
         run: pytest tests/ -vv
 
-      # - name: Debug
-      #   run: python tests${{ env.SEP }}test_powder_mod.py
+      - name: Debug
+        run: python tests${{ env.SEP }}test_powder_mod.py
