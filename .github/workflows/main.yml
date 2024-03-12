@@ -229,6 +229,7 @@ jobs:
         with:
           name: ${{ env.FIXED_WHEEL_NAME }}
           path: ${{ env.PYCRYSFML_WHEEL }}${{ env.SEP }}${{ env.FIXED_WHEEL_NAME }}
+          overwrite: true
 
       - name: Run tests
         run: pytest tests/ -vv
