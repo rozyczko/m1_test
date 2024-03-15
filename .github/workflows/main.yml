@@ -17,13 +17,6 @@ jobs:
         os: [flyci-macos-14-m1, flyci-macos-14-m2]  # [ubuntu-22.04, macos-12, windows-2022]
         build_system: [cmake]  # [cmake, fpm]
         compiler: [gfortran]  # [gfortran, ifort]
-        # include:
-        #   - os: ubuntu-22.04
-        #     build_system: cmake
-        #     compiler: ifort
-        #   - os: ubuntu-22.04
-        #     build_system: cmake
-        #     compiler: ifx
 
     steps:
       - name: Check-out repository
@@ -110,7 +103,8 @@ jobs:
           ifx --version
 
       - name: Download CrysFML (powder_mod_fix branch)
-        run: git clone --single-branch --branch powder_mod_fix https://code.ill.fr/rodriguez-carvajal/crysfml2008.git ${{ env.CRYSFML_REPO }}
+        # run: git clone --single-branch --branch powder_mod_fix https://code.ill.fr/rodriguez-carvajal/crysfml2008.git ${{ env.CRYSFML_REPO }}
+        run: git clone --single-branch --branch powder_mod_fix https://github.com/rozyczko/CrysFML08.git ${{ env.CRYSFML_REPO }}
 
       - name: Build CrysFML using CMake
         run: |
@@ -122,7 +116,8 @@ jobs:
           cmake --install ${{ env.CRYSFML_BUILD }}
 
       - name: Download PyCrysFML (master branch)
-        run: git clone --single-branch --branch master https://code.ill.fr/scientific-software/pycrysfml08.git ${{ env.PYCRYSFML_REPO }}
+        # run: git clone --single-branch --branch master https://code.ill.fr/scientific-software/pycrysfml08.git ${{ env.PYCRYSFML_REPO }}
+        run: git clone --single-branch --branch master https://github.com/rozyczko/pycrysfml08_new.git ${{ env.PYCRYSFML_REPO }}
 
       - name: Copy powder_mod.f90 to PyCrysFML src folder
         run: |
