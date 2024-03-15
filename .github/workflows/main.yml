@@ -117,7 +117,7 @@ jobs:
 
       - name: Download PyCrysFML (master branch)
         # run: git clone --single-branch --branch master https://code.ill.fr/scientific-software/pycrysfml08.git ${{ env.PYCRYSFML_REPO }}
-        run: git clone --single-branch --branch master https://github.com/rozyczko/pycrysfml08_new.git ${{ env.PYCRYSFML_REPO }}
+        run: git clone --single-branch --branch master https://github.com/rozyczko/pycrysfml2008.git ${{ env.PYCRYSFML_REPO }}
 
       - name: Copy powder_mod.f90 to PyCrysFML src folder
         run: |
