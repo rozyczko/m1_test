@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [flyci-macos-14-m2, ubuntu-22.04]  # [flyci-macos-14-m1, flyci-macos-14-m2, ubuntu-22.04, macos-12, windows-2022]
+        os: [flyci-macos-14-m2, ubuntu-22.04, windows-latest]  # [flyci-macos-14-m1, flyci-macos-14-m2, ubuntu-22.04, macos-12, windows-2022]
         build_system: [cmake]  # [cmake, fpm]
         compiler: [gfortran]  # [gfortran, ifort]
 
